@@ -1,0 +1,2261 @@
+----THIS ARCHIVE CONTAINS PROCEDURES FROM 1, 2, 3, 6, 6+, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 19,20,21
+
+---------VIEW CUSTOMERS, VIEW AND PROC
+create view  vcustomers as   
+select pe.BusinessEntityID, sc.customerid, pe.firstname, pe.middlename, pe.lastname, pe.persontype 
+from sales.customer as sc
+
+join  person.person as pe
+on sc.PersonId = pe.businessentityid;
+
+select * from vcustomers;
+
+
+create procedure vc
+as
+begin
+ select * from vcustomers;
+end;
+
+exec vc;
+--------------------CUSTOMER SEARCH PROC
+
+CREATE PROCEDURE customersearch 
+    
+    	@Customerid int = 0, 
+    	@StoreID int = 0, 
+	@Lastname nvarchar(50) = NULL,
+	@Address  nvarchar(60) = NULL
+    
+
+AS
+BEGIN
+    
+     IF @Customerid > 0
+    BEGIN
+       select pe.BusinessEntityID, sc.customerid, sc.storeid, pe.firstname, pe.middlename, pe.lastname, pe.persontype 
+	from sales.customer as sc
+
+	join  person.person as pe
+	on sc.PersonId = pe.businessentityid
+ 	WHERE CAST(sc.CustomerID AS VARCHAR) LIKE   '%'+CAST(@CustomerID AS VARCHAR)+'%' ;
+       
+    END
+
+    ELSE IF @StoreID > 0
+    BEGIN
+         select pe.BusinessEntityID, sc.customerid, sc.storeid, pe.firstname, pe.middlename, pe.lastname, pe.persontype 
+	froM person.person as pe
+
+	join sales.customer as sc
+	on pe.BusinessEntityID = sc.PersonID
+
+
+	where CAST(sc.storeid AS VARCHAR) LIKE   '%'+CAST(@storeid AS VARCHAR)+'%' ;
+
+    END
+
+    ELSE IF @Lastname IS NOT NULL AND LTRIM(RTRIM(@Lastname)) <> ''
+    BEGIN
+
+        select * from vcustomers where lastname LIKE '%' + @Lastname + '%'
+    END
+
+    ELSE IF @Address IS NOT NULL AND LTRIM(RTRIM(@Address)) <> ''
+    BEGIN
+         select pe.BusinessEntityID, sc.customerid, pe.firstname, pe.middlename, pe.lastname, pe.persontype 
+	from sales.customer as sc
+
+	join  person.person as pe
+	on sc.PersonId = pe.businessentityid
+
+	join person.businessentity as pb
+	on  pe.businessentityid = pb.businessentityid
+
+	join person.businessentityaddress as pba
+	on  pb.businessentityid = pba.businessentityid
+
+	join person.address as pa
+	on  pba.addressid = pa.addressid
+
+ 	where pa.addressline1 LIKE '%' + @Address + '%';
+
+
+		 select pe.BusinessEntityID, sc.customerid, pe.firstname, pe.middlename, pe.lastname, pe.persontype 
+froM person.person as pe
+
+join sales.customer as sc
+on pe.BusinessEntityID = sc.PersonID
+
+join sales.store as ss
+on sc.storeid = ss.BusinessEntityID
+
+join person.businessentity as pb
+on  ss.businessentityid = pb.businessentityid
+
+join person.businessentityaddress as pba
+on  pb.businessentityid = pba.businessentityid
+
+join person.address as pa
+on  pba.addressid = pa.addressid where pa.addressline1 LIKE '%' + @Address + '%'
+    END
+
+	
+	--SET @Customerid = 0, NOT NECESSARY
+    	--set @StoreID = 0, 
+	--set @Lastname = NULL,
+	--set @Adress  = NULL
+    --exec vc;
+END;
+
+exec customersearch @customerid =11377;
+
+
+-----------SALE ORDERS PER CUSTOMERS
+
+
+CREATE PROCEDURE cusorder 
+    
+    	@Customerid int = 0, 
+    	
+    
+
+AS
+BEGIN
+    
+    IF @Customerid>0
+    BEGIN
+        select salesorderid, salesordernumber, purchaseordernumber,
+	orderdate, shipdate, totaldue, status, accountnumber, salespersonid
+	
+	from sales.salesorderheader
+	where customerid = @CustomerID;
+    END
+
+    
+END;
+
+EXEC cusorder;
+
+
+----------------INSERT NEW CUSTOMER
+
+
+
+drop procedure InsertNewCustomer;
+
+CREATE PROCEDURE InsertNewCustomer
+	@persontype nchar(2), -- either 'SC' OR 'IN'
+    @FirstName NVARCHAR(50),
+    @LastName NVARCHAR(50),
+
+	@middlename NVARCHAR(50),
+	@territoryid int, 
+	@city   nvarchar(30),
+	@postalcode nvarchar(15),
+	@addressline1 nvarchar(60),
+	@addressline2 nvarchar(60) = null,
+	@storeid int,
+	@addresstypeid int,
+	@StateProvinceID INT output,
+	@NewBusinessEntityID INT output,
+	@newaddressid int output
+
+    
+AS
+BEGIN
+SET NOCOUNT ON;
+
+    
+   begin try
+			begin transaction;
+	
+			INSERT INTO Person.BusinessEntity DEFAULT VALUES;
+
+    
+			SET @NewBusinessEntityID = SCOPE_IDENTITY();
+
+    
+			INSERT INTO Person.Person (BusinessEntityID, PersonType, NameStyle, title, FirstName, LastName, Middlename, suffix, 
+			EmailPromotion, AdditionalContactInfo, Demographics, ROWGUID, MODIFIEDDATE)
+			VALUES (
+				@NewBusinessEntityID,
+				@persontype, -- Assuming individual person type
+				0, -- NameStyle (0 or 1)
+				null,
+				@FirstName,
+				@LastName,
+				@middlename,
+				null,
+				0, -- EmailPromotion
+				null,
+				null,
+				newid(),
+				getdate()
+  
+			);
+
+			SELECT @StateProvinceID = sp.StateProvinceID
+		FROM Person.StateProvince AS sp
+		JOIN Sales.SalesTerritory AS st ON sp.StateProvinceID = st.TerritoryID
+		WHERE st.TerritoryID = @TerritoryID;
+	
+			insert into person.address(AddressLine1, addressline2, city, StateProvinceID, PostalCode, SpatialLocation, rowguid, ModifiedDate)
+			values (
+			@addressline1,
+			@addressline2,
+			@city,
+			@StateProvinceID,
+			@postalcode,
+			null,
+			newid(),
+			getdate()
+			);
+
+			SET @newaddressid = SCOPE_IDENTITY();
+
+			insert into person.BusinessEntityAddress(businessentityid, addressid, AddressTypeID, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@newaddressid,
+			@addresstypeid,
+			newid(),
+			getdate()
+	
+			);
+
+			insert into sales.customer(personid, StoreID, TerritoryID, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@storeid,
+			@territoryid,
+			newid(),
+			getdate()
+
+			);
+		commit transaction;
+	end try
+	begin catch
+		SELECT
+        ERROR_NUMBER() AS ErrorNumber,
+        ERROR_SEVERITY() AS ErrorSeverity,
+        ERROR_STATE() AS ErrorState,
+        ERROR_MESSAGE() AS ErrorMessage;
+	IF @@TRANCOUNT > 0
+		rollback transaction;
+
+		throw;
+	end catch;
+		END;
+
+
+
+
+---------QUERRIES THAT HELP WITH THE INSERT NEW CUSTOMER, showstores AND STORESEARCH
+
+
+
+--gia ton constructor:
+
+drop procedure showstores;
+
+create procedure showstores
+	@territoryid int
+
+as
+begin
+
+select s.businessentityid, s.name from sales.store s
+			join person.BusinessEntity pbe
+			on s.BusinessEntityID = pbe.BusinessEntityID
+
+			join person.BusinessEntityAddress pba
+			on pbe.BusinessEntityID = pba.BusinessEntityID
+
+			join person.address pa
+			on pba.AddressID = pa.AddressID
+
+			join person.StateProvince ps
+			on pa.StateProvinceID = ps.StateProvinceID
+
+			join sales.SalesTerritory st
+			on st.TerritoryID = ps.TerritoryID
+			where st.TerritoryID = @territoryid;
+
+end;
+
+exec showstores @territoryid = 10;
+
+--gia to storesearch:
+
+drop procedure storesearch;
+
+
+create procedure storesearch
+	@storename nvarchar(50) null,
+	@territoryid int
+
+as
+begin
+select s.businessentityid, s.name from sales.store s
+			join person.BusinessEntity pbe
+			on s.BusinessEntityID = pbe.BusinessEntityID
+
+			join person.BusinessEntityAddress pba
+			on pbe.BusinessEntityID = pba.BusinessEntityID
+
+			join person.address pa
+			on pba.AddressID = pa.AddressID
+
+			join person.StateProvince ps
+			on pa.StateProvinceID = ps.StateProvinceID
+
+			join sales.SalesTerritory st
+			on st.TerritoryID = ps.TerritoryID
+			where st.TerritoryID = @territoryid and s.name like '%'+@storename+'%';
+end;
+
+exec storesearch @territoryid = 10,@storename = 'Ne' ;
+
+------------------DELETE CUSTOMER
+drop procedure dcus; --delete customer
+
+CREATE PROCEDURE dcus
+    @businessentityid INT
+AS
+BEGIN
+ 	SET NOCOUNT ON;
+    DECLARE @customerid INT;
+    DECLARE @addressid INT;
+
+    -- Begin transaction
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- Retrieve CustomerID and AddressID based on BusinessEntityID
+        SELECT @customerid = sc.CustomerID
+        FROM Sales.Customer sc
+        JOIN Person.Person pp ON sc.PersonID = pp.BusinessEntityID
+        WHERE pp.BusinessEntityID = @businessentityid;
+
+        SELECT @addressid = AddressID
+        FROM Person.BusinessEntityAddress
+        WHERE BusinessEntityID = @businessentityid;
+
+        -- Check if there are no related sales orders
+        IF NOT EXISTS (
+            SELECT 1
+            FROM Sales.SalesOrderDetail sod
+            JOIN Sales.SalesOrderHeader soh ON sod.SalesOrderID = soh.SalesOrderID
+            WHERE soh.CustomerID = @customerid
+        )
+        BEGIN
+            -- Perform deletion of all related records
+            DELETE FROM Person.BusinessEntityAddress WHERE BusinessEntityID = @businessentityid;
+            DELETE FROM Person.Address WHERE AddressID = @addressid;
+            DELETE FROM Sales.Customer WHERE CustomerID = @customerid;
+            DELETE FROM Person.Person WHERE BusinessEntityID = @businessentityid;
+            DELETE FROM Person.BusinessEntity WHERE BusinessEntityID = @businessentityid;
+        END;
+
+        -- Commit transaction if no errors
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        -- Rollback transaction in case of error
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+
+		SELECT
+       		ERROR_NUMBER() AS ErrorNumber,
+        	ERROR_SEVERITY() AS ErrorSeverity,
+        	ERROR_STATE() AS ErrorState,
+        	ERROR_MESSAGE() AS ErrorMessage;
+        -- Optionally, log the error or rethrow it
+        THROW;
+    END CATCH;
+END;
+
+
+exec dcus @businessentityid = ;
+
+
+
+
+--------------VIEW SALES PERSON 
+
+
+
+drop procedure vsalesperson;       --SHOWS ALL SALES PERSONNEL
+
+create procedure vsalesperson
+as
+begin
+	select * from sales.vsalesperson;
+end;
+
+exec sales.vsalesperson;
+
+
+
+
+
+drop procedure acsalesp;          --SHOWS ACTIVE SALES PERSONNEL
+
+
+create procedure acsalesp
+as
+begin
+	select * from sales.vsalesperson svp
+	left join humanresources.employee hre
+	on svp.BusinessEntityID = hre.BusinessEntityID
+	where hre.CurrentFlag =1;
+end;
+
+exec acsalesp;
+
+
+
+
+drop procedure insalesp;	--SHOWS INACTIVE SALES PERSONNEL
+
+
+create procedure insalesp
+as
+begin
+	select * from sales.vsalesperson svp
+	left join humanresources.employee hre
+	on svp.BusinessEntityID = hre.BusinessEntityID
+	where hre.CurrentFlag =0;
+end;
+
+exec insalesp;
+
+
+
+---------SEARCH SALESPERSON
+
+
+
+drop procedure spsearch;
+
+create procedure spsearch
+	@businessentityid int =0,            --businessentityid
+	@addressline1 nvarchar(60)=null,	 --address
+	@lastname nvarchar(50)=null,		 --lastname
+	@emailaddress	nvarchar(50)=null,	--emailaddress
+	@storename  nvarchar(50)=null	   --storename
+as
+begin
+	if @businessentityid>0
+	begin
+		select * from sales.vsalesperson where  CAST(BUSINESSENTITYID AS VARCHAR) LIKE   '%'+CAST(@BUSINESSENTITYID AS VARCHAR)+'%' ;
+	end;
+	else if @Lastname IS NOT NULL AND LTRIM(RTRIM(@Lastname)) <> ''
+    BEGIN
+
+         select * from sales.vsalesperson where lastname LIKE '%' + @Lastname + '%'
+    END;
+	else if @emailaddress IS NOT NULL AND LTRIM(RTRIM(@emailaddress)) <> ''
+    BEGIN
+
+         select * from sales.vsalesperson where emailaddress LIKE '%' + @emailaddress + '%'
+    END;
+	else if @addressline1 IS NOT NULL AND LTRIM(RTRIM(@addressline1)) <> ''
+    BEGIN
+
+         select * from sales.vsalesperson where AddressLine1 LIKE '%' + @addressline1 + '%'
+    END;
+	else if @storename IS NOT NULL AND LTRIM(RTRIM(@storename)) <> ''
+    BEGIN
+
+         select ssp.businessentityid, ssp.title, ssp.firstname, ssp.middlename, ssp.lastname, ssp.suffix, ssp.jobtitle, ssp.phonenumber, ssp.phonenumbertype, ssp.emailaddress, ssp.emailpromotion, ssp.addressline1,ssp.addressline2, ssp.city, ssp.stateprovincename, ssp.postalcode, ssp.countryregionname, ssp.territoryname, ssp.territorygroup, ssp.salesquota,ssp.salesytd, ssp.saleslastyear from sales.vsalesperson ssp
+		 left join sales.store sst
+		 on sst.salespersonid = ssp.BusinessEntityID
+		 where sst.name LIKE '%' + @storename + '%'
+    END;
+end;
+
+exec spsearch @storename = 'Next-Door Bike Store';
+
+
+
+
+
+----------DEACTIVATE SALESPERSON
+
+
+
+drop procedure deactsp;
+
+create procedure deactsp
+	@businessentityid int=0
+as
+begin 
+	if @businessentityid>0
+	begin
+		update humanresources.employee 
+		set CurrentFlag = 0
+		where businessentityid = @businessentityid
+	end
+end;
+
+exec deactsp @businessentityid = ;
+
+
+
+--chatgpts 
+CREATE PROCEDURE deactsp
+    @businessentityid INT = 0
+AS
+BEGIN
+    IF @businessentityid > 0
+    BEGIN
+        BEGIN TRANSACTION;
+        
+        BEGIN TRY
+            UPDATE HumanResources.Employee
+            SET CurrentFlag = 0
+            WHERE BusinessEntityID = @businessentityid;
+
+            COMMIT TRANSACTION;
+        END TRY
+        BEGIN CATCH
+            ROLLBACK TRANSACTION;
+            THROW;
+        END CATCH;
+    END;
+END;
+
+
+
+
+---------ADD NEW SALES PERSON
+
+
+
+drop PROCEDURE InsertNewSalesPerson;
+
+CREATE PROCEDURE InsertNewSalesPerson
+	
+    @FirstName NVARCHAR(50),
+    @LastName NVARCHAR(50),
+	@middlename NVARCHAR(50),
+	@territoryid int,         --salesterritory kamia 12aria
+	@city   nvarchar(30),
+	@postalcode nvarchar(15),
+	@addressline1 nvarchar(60),
+	@addressline2 nvarchar(60) = null,
+	@addresstypeid int,			--1,2,3  home,mainoffice,primary
+	@StateProvinceID INT output,		--aytomata
+	@NewBusinessEntityID INT output,	--aytomata
+	@newaddressid int output,		--aytomta
+	@nationalidnumber nvarchar(15),
+	@loginid nvarchar(256),
+	@birthdate  date,
+	@MaritalStatus	nchar(1),	--m=married, s=single
+	@Gender	nchar(1),		--m=male,f=female
+	@HireDate	date output,		--aytomata
+	@SalariedFlag	bit,	--0,1  hourly or salaried
+	@departmentid smallint, --3 or 4 sales or marketing  
+	@shiftid tinyint,		--1,2,3 day,evening,night
+	@SalesQuota	money = 0.00, -- mporeiw na afhseiw kena 
+	@Bonus	money = 0.00,
+	@CommissionPct	smallmoney=0.00,
+	@emailaddress  nvarchar(50),
+	@phonenumbertypeid int,    --1,2,3 cell home work 
+	@phonenumber nvarchar(25)
+	
+
+
+
+
+
+    
+AS
+BEGIN
+SET NOCOUNT ON;
+	begin try
+			begin transaction;
+
+			INSERT INTO Person.BusinessEntity DEFAULT VALUES;
+
+    
+			SET @NewBusinessEntityID = SCOPE_IDENTITY();
+
+    
+			INSERT INTO Person.Person (BusinessEntityID, PersonType, NameStyle, title, FirstName, LastName, Middlename, suffix, 
+			EmailPromotion, AdditionalContactInfo, Demographics, ROWGUID, MODIFIEDDATE)
+			VALUES (
+				@NewBusinessEntityID,
+				'SP', -- Assuming individual person type
+				0, -- NameStyle (0 or 1)
+				null,
+				@FirstName,
+				@LastName,
+				@middlename,
+				null,
+				0, -- EmailPromotion
+				null,
+				null,
+				newid(),
+				getdate()
+  
+			);
+
+			SELECT @StateProvinceID = sp.StateProvinceID
+		FROM Person.StateProvince AS sp
+		JOIN Sales.SalesTerritory AS st ON sp.StateProvinceID = st.TerritoryID
+		WHERE st.TerritoryID = @TerritoryID;
+	
+			insert into person.address(AddressLine1, addressline2, city, StateProvinceID, PostalCode, SpatialLocation, rowguid, ModifiedDate)
+			values (
+			@addressline1,
+			@addressline2,
+			@city,
+			@StateProvinceID,
+			@postalcode,
+			null,
+			newid(),
+			getdate()
+			);
+
+			SET @newaddressid = SCOPE_IDENTITY();
+
+			insert into person.BusinessEntityAddress(businessentityid, addressid, AddressTypeID, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@newaddressid,
+			@addresstypeid,
+			newid(),
+			getdate()
+	
+			);
+
+			set @hiredate =  getdate();
+
+			insert into HumanResources.Employee(BusinessEntityID, NationalIDNumber, loginid, 
+			 OrganizationNode,
+			JobTitle, BirthDate, MaritalStatus, Gender, HireDate,
+			SalariedFlag, VacationHours, SickLeaveHours, 
+			CurrentFlag, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@nationalidnumber,
+			@loginid,
+			null,
+			'Sales Representantive',
+			@birthdate,
+			@MaritalStatus,
+			@Gender,
+			@HireDate,
+			@SalariedFlag,
+			0,
+			0,
+			1,
+			newid(),
+			getdate()
+			);
+	
+			insert into humanresources.EmployeeDepartmentHistory(BusinessEntityID, DepartmentID, ShiftID, StartDate, EndDate, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@departmentid,
+			@shiftid,
+			@HireDate,
+			null,
+			getdate()
+			);
+
+			insert into sales.SalesPerson(BusinessEntityID, TerritoryID, SalesQuota, Bonus, CommissionPct, SalesYTD, SalesLastYear, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@TerritoryID,
+			@SalesQuota,
+			@Bonus,
+			@CommissionPct,
+			0.00,
+			0.00,
+			NEWID(),
+			getdate()
+			);
+
+			insert into person.EmailAddress(BusinessEntityID,EmailAddress, rowguid, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@emailaddress,
+			NEWID(),
+			getdate()
+			);
+
+			insert into person.PersonPhone(BusinessEntityID, PhoneNumber, PhoneNumberTypeID, ModifiedDate)
+			values(
+			@NewBusinessEntityID,
+			@phonenumber,
+			@phonenumbertypeid,
+			GETDATE()
+			);
+
+			commit transaction;
+		end try
+		begin catch
+ 		SELECT
+       		ERROR_NUMBER() AS ErrorNumber,
+        	ERROR_SEVERITY() AS ErrorSeverity,
+        	ERROR_STATE() AS ErrorState,
+        	ERROR_MESSAGE() AS ErrorMessage;
+			IF @@TRANCOUNT > 0
+				rollback transaction;
+
+			throw;
+		end catch
+END;
+
+
+
+
+
+
+
+------------------14. SELECTING PRODUCT
+
+
+
+
+drop view if exists productinfo;
+
+
+create view productinfo as
+select pp.name as productname,ppc.name as category, pp.ProductNumber,pp.listprice, pp.ProductID from production.product pp
+	join Production.ProductSubcategory pps
+	on pp.ProductSubcategoryID= pps.ProductSubcategoryID
+	join Production.ProductCategory ppc
+	on pps.ProductCategoryID= ppc.ProductCategoryID;
+
+--category
+	select category from productinfo;
+
+--productname
+	select productname from productinfo where category = 'Components';
+
+--productnumber
+	select productnumber from productinfo where productname = 'HL Mountain Frame - Silver, 38';
+
+--listprice
+	select listprice from productinfo where productname = 'HL Mountain Frame - Silver, 38';
+
+--productid
+	select productid from productinfo where productname = 'HL Mountain Frame - Silver, 38';
+
+
+
+
+
+
+------------------------13. CUSTOMER PROFILE
+
+
+DROP VIEW IF EXISTS CUSTOMERINFO
+
+
+CREATE VIEW CUSTOMERINFO AS
+select pa.AddressLine1,pbe.BusinessEntityID, pa.City, pa.PostalCode from person.address pa
+		join person.businessentityaddress bea
+		on bea.AddressID = pa.AddressID
+
+		join person.BusinessEntity pbe
+		on bea.BusinessEntityID = pbe.BusinessEntityID;
+
+	
+	
+	
+--customer name	
+	SELECT firstname, middlename, lastname FROM person.person where BusinessEntityID = 1699;
+	
+--ADDRESS	
+	SELECT ADdRESSLINE1 FROM CUSTOMERINFO WHERE BusinessEntityID=1699 ;	
+--city
+	SELECT city FROM CUSTOMERINFO WHERE BusinessEntityID= 1699;	
+
+--postalcode	
+	SELECT city FROM CUSTOMERINFO WHERE BusinessEntityID= 1699;	
+	
+
+
+
+------------------15. SALESORDER QUERY
+
+
+
+----πρεπει να παιρνεις και το customerid και το businessentityid, για διευκολυνση του κωδικα για μενα 
+
+
+
+drop procedure if exists sohead; 
+
+
+
+
+create procedure sohead
+	@BusinessEntityid int,					-- to dineis esy	
+	@customerid int,						-- to dineis esy
+	@persontype nchar(2) output,		--aytomata
+	@storeid int output,					--aytomata
+	@orderdate datetime output,             --aytomata
+	@duedate datetime output,				--aytomata
+	@accountnumber nvarchar(15) output, 	-- aytomata
+	@salespersonid int output, 				--aytomata
+	@territoryid int output,			--aytomata
+	@billToAddressid int output,	 --aytomata
+	@shipToAddressid int output,	--aytomata
+	@shipMethodid int,  -- to dineis esy
+	@creditcardid int output,  --βρισκεται αυτοματα αλλα αν δεν υπαρχει οφειλει ο user να βαλει καινουριο credit card 	
+	@currencyrateid int =null,     --aytomata
+	@subtotal money, --to dineis esy
+	@taxamt money,    --to dineis esy
+	@freight money,		--to dineis esy
+	--totaldue self generated and computed
+	@comment nvarchar(128)  --to dineis esy
+
+AS
+BEGIN 
+	set nocount on;
+		begin try
+		
+			begin transaction
+			--@storeid
+			
+				select @storeid = storeid from sales.customer where CustomerID = @customerid;
+
+			--orderdate	
+			SET @orderdate = GETDATE();
+
+			--duedate
+			SET @duedate = DATEADD(day, 15, @orderdate);
+
+
+			--salespersonid
+			
+			if @storeid IS NULL
+				SET @salespersonid = NULL;
+			else
+				SELECT @salespersonid = SalesPersonID 
+				FROM Sales.Store 
+				WHERE BusinessEntityID = @storeid;
+
+
+			--territoryid
+			select @territoryid = territoryid from sales.Customer
+			where customerid = @customerid;
+
+			--biiltoaddress  AND  shipaddressid
+			--;WITH persontypecte AS (
+			--		SELECT persontype 
+			--		FROM person.Person
+			--		WHERE BusinessEntityID = @businessentityid
+			--	)
+			--select @persontype = persontype from persontypecte
+			select @persontype = persontype FROM person.Person
+					WHERE BusinessEntityID = @businessentityid;
+
+			if @persontype = 'SC' 
+			BEGIN
+						;with billshipadd as(
+							SELECT AddressID FROM  
+							person.BusinessEntityAddress
+
+							where BusinessEntityid = @storeid
+	
+						)
+						select   @BILLTOADDRESSID = addressid,@SHIPTOADDRESSID = addressid  from billshipadd; --address GIA 'SC'
+			
+			END
+			ELSE IF @PERSONTYPE = 'IN' 
+			BEGIN
+						;with billshipadd as(
+							SELECT AddressID FROM  
+							person.BusinessEntityAddress
+
+							where BusinessEntityid = @businessentityid
+	
+						)
+						select   @BILLTOADDRESSID = addressid,@SHIPTOADDRESSID = addressid  from billshipadd; --address gia 'IN'
+			END;			 
+
+			--creditcardid
+
+			select @creditcardid = 	CreditCardID from Sales.PersonCreditCard where businessentityid = @BusinessEntityid;
+
+			--accountnumber 
+
+			select @accountnumber = accountnumber from sales.customer where customerid = @customerid;
+
+			--currencyrateid
+
+			--null
+
+			
+
+
+			
+
+
+			insert into sales.salesorderheader(revisionNumber, orderdate, duedate, shipdate, status,
+			onlineorderflag, purchaseordernumber, accountnumber, customerid, salespersonid, territoryid, 		
+	billtoaddressid, shiptoaddressid, shipmethodid, creditcardid, creditcardapprovalcode, 		
+	currencyrateid, subtotal, taxamt, freight, comment, rowguid, modifieddate)
+			VALUES(
+			0,
+			@orderdate,
+			@duedate,
+			null,
+			1,
+			0,
+			null,
+			@accountnumber,
+			@customerid,
+			@salespersonid,
+			@territoryid,
+			@billToAddressid,
+			@shipToAddressid,
+			@shipMethodid,
+			@creditcardid,
+			null, --credit card approval code
+			@currencyrateid,
+			@subtotal,
+			@taxamt,
+			@freight,
+			--@totaldue, --mono toy
+			@comment,
+			newid(),
+			getdate()
+	);
+
+			commit transaction
+		end try
+		begin catch 
+			SELECT
+				ERROR_NUMBER() AS ErrorNumber,
+				ERROR_SEVERITY() AS ErrorSeverity,
+				ERROR_STATE() AS ErrorState,
+				ERROR_MESSAGE() AS ErrorMessage;
+
+		IF @@TRANCOUNT > 0
+			rollback transaction;
+			throw;
+		end catch
+end;
+		
+		 
+exec sohead @businessentityid=1983 , @customerid=30113 ,@shipmethodid= 1, @subtotal =5,
+@taxamt =5, @freight = 5, @comment = null,@persontype = null, @storeid = null,@orderdate = null, @duedate = null, @accountnumber= null, @salespersonid= null,
+@territoryid = null, @billToAddressid = null, @shipToAddressid=null, @creditcardid = null;
+
+-- IT FREAKING WORKS
+
+--select top 1* from sales.salesorderheader
+--order by modifieddate desc;
+
+
+
+
+---------------------16 SALEES  ORDERDETAIL------
+--------@@@@@@@@@@@@@@ΔΕΝ ΘΑ ΧΡΗΣΙΜΟΠΟΙΗΣΩ ΑΥΤΗ
+
+
+drop procedure if exists sodetail;
+
+CREATE PROCEDURE sodetail
+    @salesorderid INT OUTPUT,
+    @orderqty SMALLINT,
+    @productid INT,
+    @specialofferid INT =1, --NO DISCOUNT
+    @unitprice MONEY output,
+    @unitpricediscount MONEY = 0.00,
+	@specialoffer int  output
+    --@rowguid UNIQUEIDENTIFIER output,--= newid(),-- In SQL Server, you cannot directly set the default value of a stored procedure parameter to be a function like NEWID() or GETDATE() within the parameter declaration itself. The default values for parameters in stored procedures must be constants; 
+	--@modifieddate DATETIME output--= getdate()-- they cannot be functions or expressions that need to be evaluated at runtime.
+    
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY 
+        BEGIN TRANSACTION
+
+
+
+        -- Getting the last inserted SalesOrderID from SalesOrderHeader
+        --SELECT @salesorderid = MAX(SalesOrderID) FROM sales.SalesOrderHeader;
+
+		SELECT TOP 1 @salesorderid = SalesOrderID
+		FROM Sales.SalesOrderHeader
+		ORDER BY ModifiedDate DESC;
+
+		--unitprice
+		select @unitprice = ListPrice  from production.Product
+		where productid = @productid;
+
+		--roguid and modified date
+		--set @rowguid = newid();
+		--set @modifieddate = getdate();
+
+		--specialoffer
+		select @specialoffer = specialofferid from sales.specialofferproduct
+		where productid = @productid and specialofferid = 1;
+
+		if @specialoffer is null
+		begin
+			insert into sales.SpecialOfferProduct(SpecialOfferID, ProductID, rowguid, ModifiedDate)
+			values(
+				@specialofferid,
+				@productid,
+				newid(),
+				getdate()
+				)
+
+
+		end
+		
+
+
+        -- Inserting into SalesOrderDetail
+        INSERT INTO sales.SalesOrderDetail(SalesOrderID, CarrierTrackingNumber, OrderQty, ProductID, SpecialOfferID, UnitPrice, UnitPriceDiscount, rowguid, ModifiedDate)
+        VALUES(
+            @salesorderid,
+            NULL,  -- Assuming no carrier tracking number is provided
+            @orderqty,
+            @productid,
+            @specialofferid,
+            @unitprice,
+            @unitpricediscount,
+            newid(),
+            getdate()
+        )
+
+        COMMIT TRANSACTION
+    END TRY 
+    BEGIN CATCH 
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+
+
+exec sodetail @salesorderid= null, @productid=680 , @orderqty=2, @unitprice = null, @specialoffer= null;
+
+
+
+
+------------------------------17.NEWCREDIT
+
+
+
+--------------------CHECKING IF THERE IS A CREDIT CARD TO THIS PERSON
+		
+		SELECT creditcardid FROM SALES.PERSONCREDITCARD WHERE BUSINESSENTITYID = @businessentityid;--285;
+		
+
+
+------------------------
+drop  procedure if exists newcredit;--thelei elegXO--EGINE EINAI KOMPLE
+
+create procedure newcredit
+	@businessentityid int, 
+	@CreditCardid int output,
+	@cardtype nvarchar(50), --1 eos 4 Superiorcard, Vista, Distinguish, ColonialVoice
+	@cardnumber nvarchar(25),--14 ψηφια
+	@expmonth tinyint, --12 months
+	@expyear smallint,	--year pou lhgei
+	@modifieddate datetime output
+as
+begin 
+	set nocount on;
+	begin try
+		set @modifieddate = GETDATE();
+
+		begin transaction
+			insert into sales.creditcard(CardType, cardnumber, ExpMonth, ExpYear, ModifiedDate)
+			values(
+				@cardtype,
+				@cardnumber,
+				@expmonth,
+				@expyear,
+				@modifieddate
+				)
+
+			set @CreditCardid = SCOPE_IDENTITY();
+
+			insert into sales.personcreditcard(BusinessEntityID, CreditCardID, ModifiedDate)
+			values(
+				@businessentityid,
+				@CreditCardid,
+				@modifieddate
+				)
+		commit transaction
+		end try
+			begin catch
+				SELECT
+			ERROR_NUMBER() AS ErrorNumber,
+			ERROR_SEVERITY() AS ErrorSeverity,
+			ERROR_STATE() AS ErrorState,
+			ERROR_MESSAGE() AS ErrorMessage;
+		IF @@TRANCOUNT > 0
+			rollback transaction;
+		
+			throw
+		end catch
+end;
+
+exec newcredit @CreditCardid=null, @businessentityid =--285,@cardtype = 'ColonialVoice',
+@cardnumber = '12345678901234', @expmonth=5, @expyear=2025, @modifieddate = null ;
+
+
+
+
+-----------------------------SALESROCK ΓΙΑ ΤΟ ΚΑΘΕ ΠΡΟΙΟΝ ΞΧΩΡΙΣΤΑ ΤΟ ΚΑΤΑΧΩΡΕΙ ΣΤΗΝ ΠΑΡΑΓΓΕΛΙΑ ΠΙΝΑΚΑ ΚΑΙ ΑΝΑΝΕΩΝΕΙ ΤΟ ΣΤΟΚ
+
+
+
+
+
+--checking from avaliable product stock
+			
+select max(quantity) from production.ProductInventory where productid = ;
+--καθε φορα που θα εκτελειται το salesrock θα εκτελειται και ο ελεγχοσ
+
+drop procedure if exists salesrock;
+
+CREATE PROCEDURE salesrock
+    @salesorderid INT OUTPUT,
+    @orderqty SMALLINT, -- αυτο που δινει ο χρηστησ
+    @productid INT,
+    @specialofferid INT =1, --NO DISCOUNT
+    @unitprice MONEY output,
+    @unitpricediscount MONEY = 0.00,
+	@specialoffer int  output,
+	@locationid smallint output,
+	@quantity 	smallint output,	--avaliable stock quantity of the product
+	@quantityleft smallint output  --stock left
+    --@rowguid UNIQUEIDENTIFIER output,--= newid(),-- In SQL Server, you cannot directly set the default value of a stored procedure parameter to be a function like NEWID() or GETDATE() within the parameter declaration itself. The default values for parameters in stored procedures must be constants; 
+	--@modifieddate DATETIME output--= getdate()-- they cannot be functions or expressions that need to be evaluated at runtime.
+    
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY 
+        BEGIN TRANSACTION
+
+
+
+        -- Getting the last inserted SalesOrderID from SalesOrderHeader
+        --SELECT @salesorderid = MAX(SalesOrderID) FROM sales.SalesOrderHeader;
+
+		SELECT TOP 1 @salesorderid = SalesOrderID
+		FROM Sales.SalesOrderHeader
+		ORDER BY ModifiedDate DESC;
+
+		--unitprice
+		select @unitprice = ListPrice  from production.Product
+		where productid = @productid;
+
+		--roguid and modified date
+		--set @rowguid = newid();
+		--set @modifieddate = getdate();
+
+		--specialoffer
+		select @specialoffer = specialofferid from sales.specialofferproduct
+		where productid = @productid and specialofferid = 1;
+
+		if @specialoffer is null
+		begin
+			insert into sales.SpecialOfferProduct(SpecialOfferID, ProductID, rowguid, ModifiedDate)
+			values(
+				@specialofferid,
+				@productid,
+				newid(),
+				getdate()
+				)
+
+
+		end
+		
+
+
+        -- Inserting into SalesOrderDetail
+        INSERT INTO sales.SalesOrderDetail(SalesOrderID, CarrierTrackingNumber, OrderQty, ProductID, SpecialOfferID, UnitPrice, UnitPriceDiscount, rowguid, ModifiedDate)
+        VALUES(
+            @salesorderid,
+            NULL,  -- Assuming no carrier tracking number is provided
+            @orderqty,
+            @productid,
+            @specialofferid,
+            @unitprice,
+            @unitpricediscount,
+            newid(),
+            getdate()
+        )
+
+		--avaliable highest quantity
+				set @quantity = (select max(quantity) from Production.ProductInventory
+				where productid = 1);
+
+				--wich location has the hioghest stock availiable
+				select @locationid = locationid from Production.ProductInventory 
+				where ProductID = @productid 
+				and quantity = @quantity;
+
+				--the quantity after the sale
+				set @quantityleft = @quantity  - @orderqty;
+
+				--cheng the quantity avaliable in the Production.ProductInventory table
+				update Production.ProductInventory
+				set Quantity = @quantityleft
+				where ProductID = @productid and LocationID = @locationid;
+        COMMIT TRANSACTION
+    END TRY 
+    BEGIN CATCH 
+
+		SELECT
+				ERROR_NUMBER() AS ErrorNumber,
+				ERROR_SEVERITY() AS ErrorSeverity,
+				ERROR_STATE() AS ErrorState,
+				ERROR_MESSAGE() AS ErrorMessage;
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END;
+
+
+
+
+
+
+
+exec salesrock @salesorderid= null, @productid=1 , @orderqty=2, @unitprice = null, @specialoffer= null,
+@locationid=null, @quantity = null, @quantityleft=null;
+
+
+
+select * from Production.ProductInventory where productid = 1
+
+
+
+
+
+
+---------------------------21 FREIGHT
+
+
+select productid, name, SizeUnitMeasureCode, WeightUnitMeasureCode, Weight from production.product
+
+select * from Production.UnitMeasure
+
+select * from purchasing.ShipMethod
+
+
+select weightunitmeasurecode from production.product where ProductID = 796;
+select weight from production.product where ProductID = 796;
+select shipbase from purchasing.ShipMethod where ShipMethodID =1;
+select shiprate from purchasing.ShipMethod where ShipMethodID =1;
+
+
+
+----------------------------------VIEW VENDORS AND THEIR REPRESENTATIVES
+
+
+
+
+
+
+
+
+
+
+
+
+drop view if exists venrep;
+
+create view venrep
+as
+select distinct v.BusinessEntityID,v.name as companyname, ct.Name as contactType, p.[FirstName] + ' ' + p.[LastName] AS RepFullName, pp.PhoneNumber, ea.emailaddress, a.addressline1, a.city, a.postalcode, sp.name as stateprovincename
+ FROM [Purchasing].[Vendor] v
+    INNER JOIN [Person].[BusinessEntityContact] bec 
+    ON bec.[BusinessEntityID] = v.[BusinessEntityID]
+
+	INNER JOIN [Person].ContactType ct
+	ON ct.[ContactTypeID] = bec.[ContactTypeID]
+
+	INNER JOIN [Person].[Person] p
+	ON p.[BusinessEntityID] = bec.[PersonID]
+
+	LEFT OUTER JOIN [Person].[EmailAddress] ea
+	ON ea.[BusinessEntityID] = p.[BusinessEntityID]
+
+	LEFT OUTER JOIN [Person].[PersonPhone] pp
+	ON pp.[BusinessEntityID] = p.[BusinessEntityID]
+
+	INNER JOIN [Person].[BusinessEntityAddress] bea 
+    ON bea.[BusinessEntityID] = v.[BusinessEntityID] 
+
+    INNER JOIN [Person].[Address] a 
+    ON a.[AddressID] = bea.[AddressID]
+
+    INNER JOIN [Person].[StateProvince] sp 
+    ON sp.[StateProvinceID] = a.[StateProvinceID]
+
+	inner join purchasing.ProductVendor pv
+	on v.[BusinessEntityID] = pv.[BusinessEntityID];
+
+    
+--view all
+	select * from venrep;
+
+--company name
+	select * from venrep where companyname = 'Australia Bike Retailer';
+
+--representative name or vendro contact
+	select * from venrep where repfullname = 'Jo Zimmerman';
+
+--phonenumber
+    select * from venrep where PhoneNumber = '816-555-0100';
+
+--postalcode
+	select * from venrep where PostalCode = 'Mill Valley';
+
+--businessentityid
+	select * from venrep where BusinessEntityID = '1536';
+
+--productid
+	select distinct v.BusinessEntityID,v.name as companyname, ct.Name as contactType, p.[FirstName] + ' ' + p.[LastName] AS RepFullName, pp.PhoneNumber, ea.emailaddress, a.addressline1, a.city, a.postalcode, sp.name as stateprovincename
+ FROM [Purchasing].[Vendor] v
+    INNER JOIN [Person].[BusinessEntityContact] bec 
+    ON bec.[BusinessEntityID] = v.[BusinessEntityID]
+
+	INNER JOIN [Person].ContactType ct
+	ON ct.[ContactTypeID] = bec.[ContactTypeID]
+
+	INNER JOIN [Person].[Person] p
+	ON p.[BusinessEntityID] = bec.[PersonID]
+
+	LEFT OUTER JOIN [Person].[EmailAddress] ea
+	ON ea.[BusinessEntityID] = p.[BusinessEntityID]
+
+	LEFT OUTER JOIN [Person].[PersonPhone] pp
+	ON pp.[BusinessEntityID] = p.[BusinessEntityID]
+
+	INNER JOIN [Person].[BusinessEntityAddress] bea 
+    ON bea.[BusinessEntityID] = v.[BusinessEntityID] 
+
+    INNER JOIN [Person].[Address] a 
+    ON a.[AddressID] = bea.[AddressID]
+
+    INNER JOIN [Person].[StateProvince] sp 
+    ON sp.[StateProvinceID] = a.[StateProvinceID]
+
+	inner join purchasing.ProductVendor pv
+	on v.[BusinessEntityID] = pv.[BusinessEntityID] where pv.productid = 317;
+--city
+	select * from venrep where City = 'Bellingham';
+
+	
+
+
+
+
+
+-------------------------------------VIEW ALL PRODUCTS 
+
+
+drop view if exists prod;
+
+create view prod 
+as
+SELECT 
+    pp.ProductID, 
+    ppc.Name AS CategoryName, 
+    psc.Name AS SubcategoryName, 
+    pp.Name AS ProductName, 
+    pp.ProductNumber, 
+    pp.MakeFlag, 
+    pp.FinishedGoodsFlag, 
+    pp.Color, 
+    pp.SafetyStockLevel, 
+    pp.ReorderPoint, 
+    pp.StandardCost, 
+    pp.ListPrice, 
+    pp.Size, 
+    sizeUnit.Name AS SizeUnit, 
+    weightUnit.Name AS WeightUnit, 
+    pp.DaysToManufacture, 
+    pp.ProductLine, 
+    pp.SellStartDate
+
+FROM Production.Product pp
+left JOIN  Production.ProductSubcategory psc
+ON psc.ProductSubcategoryID = pp.ProductSubcategoryID
+
+left JOIN  Production.ProductCategory ppc
+ON ppc.ProductCategoryID = psc.ProductCategoryID
+
+LEFT JOIN Production.UnitMeasure sizeUnit -- για να δουλεψει το join αν σε πινκα με τον εαυτο τουτπρεπει να εχει αλλο alias
+ON pp.SizeUnitMeasureCode = sizeUnit.UnitMeasureCode
+
+LEFT JOIN Production.UnitMeasure weightUnit 
+ON pp.WeightUnitMeasureCode = weightUnit.UnitMeasureCode;
+
+
+--all
+	select * from prod;
+--productid
+	select * from prod where productid = 680;
+--category name
+	select * from prod where categoryname = 'Accessories';
+--subcategory
+	select * from prod where subcategoryname = 'Helmets';
+--productname
+	select * from prod where ProductName = 'Mountain Bike Socks, M';
+--productnumber
+	select * from prod where ProductNumber = 'BK-R68R-52';
+--vendor
+	SELECT 
+    pp.ProductID, 
+    ppc.Name AS CategoryName, 
+    psc.Name AS SubcategoryName, 
+    pp.Name AS ProductName, 
+    pp.ProductNumber, 
+    pp.MakeFlag, 
+    pp.FinishedGoodsFlag, 
+    pp.Color, 
+    pp.SafetyStockLevel, 
+    pp.ReorderPoint, 
+    pp.StandardCost, 
+    pp.ListPrice, 
+    pp.Size, 
+    sizeUnit.Name AS SizeUnit, 
+    weightUnit.Name AS WeightUnit, 
+    pp.DaysToManufacture, 
+    pp.ProductLine, 
+    pp.SellStartDate
+
+FROM Production.Product pp
+left JOIN  Production.ProductSubcategory psc
+ON psc.ProductSubcategoryID = pp.ProductSubcategoryID
+
+left JOIN  Production.ProductCategory ppc
+ON ppc.ProductCategoryID = psc.ProductCategoryID
+
+LEFT JOIN Production.UnitMeasure sizeUnit -- για να δουλεψει το join αν σε πινκα με τον εαυτο τουτπρεπει να εχει αλλο alias
+ON pp.SizeUnitMeasureCode = sizeUnit.UnitMeasureCode
+
+LEFT JOIN Production.UnitMeasure weightUnit 
+ON pp.WeightUnitMeasureCode = weightUnit.UnitMeasureCode
+
+left join purchasing.productvendor pv
+on pv.productid = pp.productid
+
+
+where pv.BusinessEntityID = 1580;
+
+
+---------------------------------------------------------VENDORS WITH THE COMPANY ASSOCIATION
+
+drop procedure if exists venbros;
+	
+
+CREATE PROCEDURE venbros
+(
+	@personid int output, -- represantative id
+    @FirstName NVARCHAR(50),
+    @LastName NVARCHAR(50),
+	@middlename NVARCHAR(50),
+	@emailaddress  nvarchar(50),
+	@phonenumbertypeid int,    --1,2,3 cell home work 
+	@phonenumber nvarchar(25),
+	@suffix nvarchar(10), --Sr. or Jr. or NULL
+	@title nvarchar(8), --Mr. or Ms. or NULL
+	@companyid int, -- companys id
+	@contactTypeid int
+
+
+
+
+
+)    
+AS
+BEGIN
+SET NOCOUNT ON;
+	begin try
+			begin transaction;
+
+			 --addition to the businessentity table to add a new id
+			INSERT INTO Person.BusinessEntity DEFAULT VALUES;
+
+			-- taking that new id
+			SET @personid = SCOPE_IDENTITY();
+
+			--inserting the new representantive in person table
+			INSERT INTO Person.Person (BusinessEntityID, PersonType, NameStyle, title, FirstName, LastName, Middlename, suffix, 
+			EmailPromotion, AdditionalContactInfo, Demographics, ROWGUID, MODIFIEDDATE)
+			VALUES (
+				@personid,
+				'VC', -- Assuming individual person type
+				0, -- NameStyle (0 or 1)
+				@title,
+				@FirstName,
+				@LastName,
+				@middlename,
+				@suffix,
+				0, -- EmailPromotion
+				null,
+				null,
+				newid(),
+				getdate()
+  
+			);
+
+			--company assocciation
+
+				insert into person.businessentityContact(businessentityid, personid, contactTypeid, rowguid, modifiedDate)
+				values(
+				@companyid,
+				@personid,
+				@contactTypeid,
+				newid(),
+				getdate()
+				);
+
+
+			--emailaddress
+
+				insert into person.EmailAddress(BusinessEntityID,EmailAddress, rowguid, ModifiedDate)
+				values(
+				@personid,
+				@emailaddress,
+				NEWID(),
+				getdate()
+				);
+
+			--phone number
+
+				insert into person.PersonPhone(BusinessEntityID, PhoneNumber, PhoneNumberTypeID, ModifiedDate)
+				values(
+				@personid,
+				@phonenumber,
+				@phonenumbertypeid,
+				GETDATE()
+				);
+
+			commit transaction;
+		end try
+		begin catch
+ 			SELECT
+       			ERROR_NUMBER() AS ErrorNumber,
+        		ERROR_SEVERITY() AS ErrorSeverity,
+        		ERROR_STATE() AS ErrorState,
+        		ERROR_MESSAGE() AS ErrorMessage;
+				IF @@TRANCOUNT > 0
+					rollback transaction;
+
+				throw;
+		end catch
+END;
+
+
+exec venbros 
+	@personid = null, 
+	@companyid = '1496'   , --select name from purchasing.vendor--select businessentityid from purchasing.vendor where name = 'Gardner Touring Cycles'
+	@title = 'Mr.', --or Ms. or null
+	@FirstName ='nik',
+    @LastName ='kot',
+	@middlename ='G.', --'h kai null
+	@suffix = 'Jr.', --or Sr. or null
+	@emailaddress ='koytniko@',
+	@phonenumbertypeid = '2',    --1,2,3 cell home work 
+	@phonenumber ='6976',
+	@contactTypeid = '2'; --CONTACTYPE NAME
+							--select DISTINCT pct.name from person.ContactType pct
+								--join Person.BusinessEntityContact bc
+								--on bc.ContactTypeID = pct.ContactTypeID
+								--join person.Person p
+								--on p.BusinessEntityID = bc.PersonID
+								--where p.PersonType = 'VC';
+						 --CONTACTYPEID BASED ON NAME
+							--select DISTINCT pct.ContactTypeID from person.ContactType pct
+								--join Person.BusinessEntityContact bc
+								--on bc.ContactTypeID = pct.ContactTypeID
+								--join person.Person p
+								--on p.BusinessEntityID = bc.PersonID
+								--where p.PersonType = 'VC' AND PCT.NAME = 'Assistant Sales Agent';
+
+
+
+	select top 1 * from person.person order by BusinessEntityID desc;
+	
+
+
+
+
+
+
+
+
+
+
+---------------------------------------------------VENDORS' REPRESENTATIVES WITHOUT THE COMPANY ASSOCIATION
+
+
+
+
+
+
+drop procedure if exists venbroski;
+	
+
+CREATE PROCEDURE venbroski
+(
+	@personid int output,
+    @FirstName NVARCHAR(50),
+    @LastName NVARCHAR(50),
+	@middlename NVARCHAR(50),
+	@emailaddress  nvarchar(50),
+	@phonenumbertypeid int,    --1,2,3 cell home work 
+	@phonenumber nvarchar(25),
+	@suffix nvarchar(10), --Sr. or Jr. or NULL
+	@title nvarchar(8) --Mr. or Ms. or NULL
+	
+
+
+
+
+
+ )   
+AS
+BEGIN
+SET NOCOUNT ON;
+	begin try
+			begin transaction;
+
+			 --addition to the businessentity table to add a new id
+			INSERT INTO Person.BusinessEntity DEFAULT VALUES;
+
+			-- taking that new id
+			SET @personid = SCOPE_IDENTITY();
+
+			--inserting the new representantive in person table
+			INSERT INTO Person.Person (BusinessEntityID, PersonType, NameStyle, title, FirstName, LastName, Middlename, suffix, 
+			EmailPromotion, AdditionalContactInfo, Demographics, ROWGUID, MODIFIEDDATE)
+			VALUES (
+				@personid,
+				'VC', -- Assuming individual person type
+				0, -- NameStyle (0 or 1)
+				@title,
+				@FirstName,
+				@LastName,
+				@middlename,
+				@suffix,
+				0, -- EmailPromotion
+				null,
+				null,
+				newid(),
+				getdate()
+  
+			);
+
+			--emailaddress
+			insert into person.EmailAddress(BusinessEntityID,EmailAddress, rowguid, ModifiedDate)
+			values(
+			@personid,
+			@emailaddress,
+			NEWID(),
+			getdate()
+			);
+
+			--phone number
+			insert into person.PersonPhone(BusinessEntityID, PhoneNumber, PhoneNumberTypeID, ModifiedDate)
+			values(
+			@personid,
+			@phonenumber,
+			@phonenumbertypeid,
+			GETDATE()
+			);
+
+			commit transaction;
+		end try
+		begin catch
+ 			SELECT
+       			ERROR_NUMBER() AS ErrorNumber,
+        		ERROR_SEVERITY() AS ErrorSeverity,
+        		ERROR_STATE() AS ErrorState,
+        		ERROR_MESSAGE() AS ErrorMessage;
+				IF @@TRANCOUNT > 0
+					rollback transaction;
+
+				throw;
+		end catch
+END;
+
+
+exec venbroski 
+	@personid = null, 
+	@title = 'Mr.', --or Ms. or null
+	@FirstName ='alec',
+    @LastName ='stef',
+	@middlename ='G.', --'h kai null
+	@suffix = 'Jr.', --or Sr. or null
+	@emailaddress ='alexstef@',
+	@phonenumbertypeid = '1',    --1,2,3 cell home work 
+	@phonenumber ='6955';
+
+
+
+	select top 1 * from person.person order by BusinessEntityID desc;
+	
+
+
+
+
+---------------------------------------------------------------new vendor company
+
+
+
+
+
+
+
+
+drop procedure if exists venco;
+
+
+create procedure venco
+(
+	@companyid  int OUTPUT,
+	@AccountNumber	nvarchar(15),
+	@name 	nvarchar(50),
+	@creditrating  tinyint,--1 = Superior, 2 = Excellent, 3 = Above average, 4 = Average, 5 = Below average
+	@PreferredVendorStatus bit = 1,--0 = Do not use if another vendor is available. 1 = Preferred over other vendors supplying the same product.Default: 1
+	@PurchasingWebServiceURL	nvarchar(1024) = null,--Vendor URL.
+	@productid int output,
+	@productname 	nvarchar(50),
+	@averageleadtime int = 15, --10-120 days it takes to deliver
+	@StandardPrice	money, --The vendor's usual selling price.
+	@LastReceiptCost	money=null,--The selling price when last purchased.
+	@LastReceiptDate datetime = null,
+	@MinOrderQty	int,
+	@maxorderqty int,
+	@unitmeasurename nvarchar(50),
+	@unitmeasurecode nchar(3) output,
+	@addressid int output,
+	@addressline1 	nvarchar(60),
+	@addressline2 	nvarchar(60) = null,
+	@city 	nvarchar(30),
+	@StateProvinceID int output,
+	@statename nvarchar(50),
+	@PostalCode	nvarchar(15),
+	@personid int,
+	@contacttypeid int
+
+
+)
+as
+begin
+	set nocount on;
+	begin try
+		
+		begin transaction;
+			
+			--introducing the new companyid
+			insert into Person.BusinessEntity DEFAULT VALUES;
+			
+			--setting the new id
+			set @companyid = scope_identity();
+
+			--setting the procuytid based on the proiduct name
+			select @ProductID = ProductID from Production.product where name = 'Mountain Bike Socks, M';
+
+			--setting the unitmeasurecode of the purchasing.productvendor
+			select distinct @unitmeasurecode = um.unitmeasurecode from purchasing.ProductVendor p
+			left join Production.UnitMeasure um
+			on um.UnitMeasureCode = p.UnitMeasureCode
+			where um.name = @unitmeasurename;
+
+			--inside the vendro table
+			insert into purchasing.Vendor(
+				businessentityid, 
+				accountnumber, 
+				name, 
+				creditrating, 
+				PreferredVendorStatus, 
+				ActiveFlag, 
+				PurchasingWebServiceURL, 
+				ModifiedDate
+				)
+			values(
+				@companyid,
+				@accountnumber,
+				@name,
+				@creditrating,
+				@PreferredVendorStatus,
+				1,
+				@PurchasingWebServiceURL,
+				getdate()
+			);
+
+
+			--addition in the purchasing.productvendor
+			insert into purchasing.productvendor(
+				ProductID,
+				BusinessEntityID,
+				AverageLeadTime,
+				StandardPrice,
+				LastReceiptCost,
+				LastReceiptDate,
+				MinOrderQty,
+				MaxOrderQty,
+				OnOrderQty,
+				UnitMeasureCode,
+				ModifiedDate
+				)
+				values(
+					@productid,
+					@companyid,
+					@averageleadtime, 
+					@StandardPrice,	 
+					@LastReceiptCost,
+					@LastReceiptDate,
+					@MinOrderQty,
+					@maxorderqty,
+					0,
+					@unitmeasurecode,
+					getdate()
+				);
+
+
+			--retrieving the appropriate stateprovinceid
+			SELECT @stateprovinceid = stateprovinceid from person.StateProvince where name =@statename;
+
+			--adding the companys address
+			insert into Person.Address(
+				addressline1,
+				addressline2,
+				city,
+				StateProvinceID,
+				PostalCode,
+				SpatialLocation,
+				rowguid,
+				ModifiedDate
+				)
+			values(
+				@addressline1,
+				@addressline2,
+				@city,
+				@StateProvinceID,
+				@PostalCode,
+				null,
+				newid(),
+				getdate()
+			);
+
+			--getting the new addressid
+			set @addressid = SCOPE_IDENTITY();
+
+			--ASSIGNING THE ADDRESSS TO THE COMPANY
+			insert into person.BusinessEntityAddress(
+				BusinessEntityID,
+				AddressTypeID,
+				AddressId,
+				rowguid,
+				ModifiedDate)
+			values(
+				@companyid,
+				3,
+				@addressid,
+				newid(),
+				getdate()
+				);
+
+
+			--assignging to the new representative
+			insert into person.BusinessEntityContact(
+				BusinessEntityID,
+				PersonID,
+				ContactTypeID,
+				rowguid,
+				ModifiedDate
+				)
+			values(
+				@companyid,
+				@personid,
+				@contacttypeid,
+				newid(),
+				getdate()
+				);
+				
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+	IF @@TRANCOUNT > 0 
+		ROLLBACK TRANSACTION;
+
+		DECLARE @ErrorMessage NVARCHAR(4000);
+		DECLARE @ErrorSeverity INT;
+		DECLARE @ErrorState int;
+
+		select 
+			@ErrorMessage = ERROR_MESSAGE(),
+			@ErrorSeverity = ERROR_SEVERITY(),
+			@ErrorState = ERROR_STATE();
+
+		RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+		throw;
+	END CATCH;
+
+end;
+
+exec venco 
+		@companyid = NULL,
+		@accountnumber ='123365' ,--nvarchar(15)
+		@name = 'MISTER SHUCKS',
+		@creditrating = '4',--1 = Superior, 2 = Excellent, 3 = Above average, 4 = Average, 5 = Below average
+		@PreferredVendorStatus = '0',--0 = Do not use if another vendor is available. 1 = Preferred over other vendors supplying the same product.Default: 1 DHLADH MPOREIS NA FMHN TO GRACEIS KAUOLOY KAI UA PAREI 1 OS VALUE
+		@PurchasingWebServiceURL = 'WWW.WESUCK.COM', --CAN BE NULL
+		@unitmeasurecode = null,
+	@unitmeasurename = 'Canister',--select distinct um.name from purchasing.ProductVendor p
+											--left join Production.UnitMeasure um
+											--on um.UnitMeasureCode = p.UnitMeasureCode 
+											--where um.UnitMeasureCode not in('NA');
+
+	@productid =null, ----productid
+	@productname = 'Mountain Bike Socks, M',--category name/ select * from prod where categoryname = 'Accessories';
+						--subcategory/ select * from prod where subcategoryname = 'Helmets';
+						--productname/ select * from prod where ProductName = 'Mountain Bike Socks, M';
+	
+	@averageleadtime = '10', --10-120 days it takes to deliver me default 15
+	@StandardPrice = '17',	
+	@MinOrderQty= '1000',--select distinct MinOrderQty from purchasing.ProductVendor; NA YPARXEI EPILOGH NA BALLEI KAI DIKO TOY SE PARAKALV
+	@maxorderqty = '5000',--select distinct MaxOrderQty from purchasing.ProductVendor; NA YPARXEI EPILOGH NA BALLEI KAI DIKO TOY SE PARAKALV
+	@addressid =null,
+	@addressline1='THE MOUNTAIN',
+	@addressline2='THE SEA',--MPOREI NA MHN VALEI TIPOTA MHN TO GRACEIW KATHOOLOY H APLA NULL
+	@city= 'GEOPRGIA',
+	@StateProvinceID=null,
+	@statename = 'Alaska',--select NAME from person.StateProvince where countryregioncode = 'US'; 
+	@PostalCode='MB 1V9',
+	@personid= '20785',
+	@contacttypeid='2';   --CONTACTYPE NAME
+							--select DISTINCT pct.name from person.ContactType pct
+								--join Person.BusinessEntityContact bc
+								--on bc.ContactTypeID = pct.ContactTypeID
+								--join person.Person p
+								--on p.BusinessEntityID = bc.PersonID
+								--where p.PersonType = 'VC';
+						 --CONTACTYPEID BASED ON NAME
+							--select DISTINCT pct.ContactTypeID from person.ContactType pct
+								--join Person.BusinessEntityContact bc
+								--on bc.ContactTypeID = pct.ContactTypeID
+								--join person.Person p
+								--on p.BusinessEntityID = bc.PersonID
+								--where p.PersonType = 'VC' AND PCT.NAME = 'Assistant Sales Agent';
+
+								select top 1 * from person.BusinessEntity order by BusinessEntityID desc;
+								select top 1 * from person.BusinessEntityAddress order by BusinessEntityID desc;
+								select top 1 * from person.Address order by AddressID desc;
+								select top 1 * from person.BusinessEntityContact order by BusinessEntityID desc;
+								select top 1 * from Purchasing.Vendor order by BusinessEntityID desc;
+								select top 1 * from Purchasing.ProductVendor order by BusinessEntityID desc;
+
+
+
+
+
+ ------------------------------------------------- NEW PRODUCT
+
+
+
+
+
+
+
+
+drop procedure if exists newprod;
+
+create procedure newprod
+(	
+	@ProductSubcategoryID	int output,
+	@ProductModelID	int output,--!!!!!!!!!!!!!!!
+	@locationid int output,
+	@productid int output,
+	@companyid int output,
+	@unitmeasurecode nchar(3) output,
+	@SellStartDate	datetime output,
+	@makeflag bit output,
+	
+
+	@prodname nvarchar(50), --production.product
+	@productnumber nvarchar(25),
+	
+	@finishedGoodsFlag bit =1,
+	@Color nvarchar(15),
+	@safetystocklevel smallint,
+	@reorderpoint smallint,
+	@standardcost money,
+	@listprice money,
+	@size nvarchar(5),
+	@SizeUnitMeasureCode	nchar(3),
+	@WeightUnitMeasureCode	nchar(3),
+	@Weight	decimal(8, 2),
+	@DaysToManufacture	int,
+	@ProductLine	nchar(2),
+	@Class	nchar(2),
+	@Style	nchar(2),
+	@productsubcatname nvarchar(50),
+	
+	@SellEndDate	datetime =null,
+	@productmodelname nvarchar(50) ,
+									--production.productinventory
+	
+	@locatinname nvarchar(50),
+	@shelf nvarchar(10),
+	@bin tinyint,
+	@quantity smallint,
+									--purchasing.productvendor
+	@companyname 	nvarchar(50),
+	@averageleadtime int = 15, --10-120 days it takes to deliver
+	@StandardPrice	money, --The vendor's usual selling price.
+	@LastReceiptCost	money=null,--The selling price when last purchased.
+	@LastReceiptDate datetime = null,
+	@MinOrderQty	int,
+	@maxorderqty int,
+	@unitmeasurename nvarchar(50)
+	
+
+
+
+
+)
+as 
+begin 
+	set nocount on;
+	begin try 
+		begin transaction
+
+
+		--setting the product subcatid
+			select 	@ProductSubcategoryID= ProductSubcategoryID from production.productsubcategory where name = @productsubcatname;
+
+		--setting productmodelid 
+			select 	@ProductModelID = ProductModelID from production.productmodel where name = @productmodelname;
+
+
+		--setting the location
+			select	@locationid = LocationID from Production.Location where name = @locatinname;
+				
+		--SETTING THE COMPANYID
+			SELECT	@companyid = BusinessEntityID FROM PURCHASING.VENDOR WHERE NAME = @companyname;
+
+		--setting the measure code
+
+
+
+			select 	@unitmeasurecode= unitmeasurecode FROM production.unitmeasure where name = @unitmeasurename;
+
+		--setting the start selldate
+			set @SellStartDate= getdate();
+
+		--setting makeflag
+			set @makeflag = case	
+							when @companyname = 'Adventureworks' then 1
+							else 0
+						end;
+
+
+
+
+		--adding a new product to the game
+		insert into production.Product(
+			name,
+			productnumber,
+			makeflag,
+			finishedGoodsFlag,
+			Color,
+			safetystocklevel,
+			reorderpoint,
+			standardcost,
+			listprice,
+			size,
+			SizeUnitMeasureCode,
+			WeightUnitMeasureCode,
+			Weight,
+			DaysToManufacture,
+			ProductLine,
+			Class,
+			Style,
+			ProductSubcategoryID,
+			ProductModelId,
+			sellstartdate,
+			SellEndDate,
+			discontinueddate,
+			rowguid,
+			ModifiedDate
+			)
+		values(
+			@prodname,
+			@productnumber,
+			@makeflag,
+			@finishedGoodsFlag,
+			@Color,
+			@safetystocklevel,
+			@reorderpoint,
+			@standardcost,
+			@listprice,
+			@size ,
+			@SizeUnitMeasureCode,
+			@WeightUnitMeasureCode,
+			@Weight,
+			@DaysToManufacture,
+			@ProductLine,
+			@Class,
+			@Style,
+			@ProductSubcategoryID,
+			@ProductModelId,
+			@sellstartdate,
+			@SellEndDate,
+			null,
+			newid(),
+			GETDATE()
+		);
+
+		--getting the new productid
+			SET @productid = SCOPE_IDENTITY();
+			
+		--putting into the incventory of the company
+		insert into production.ProductInventory(
+			productid,
+			locationid,
+			shelf,
+			bin,
+			quantity,
+			rowguid,
+			modifieddate
+			)
+		values(
+			@productid,
+			@locationid,
+			@shelf,
+			@bin,
+			@quantity,
+			newid(),
+			getdate()
+		);
+
+		--associating it with the right vendor or manufacturing
+		insert into purchasing.productvendor(
+			ProductID,
+			businessentityid, 
+			averageleadtime, 
+			StandardPrice, 
+			LastReceiptCost,
+			LastReceiptDate,
+			MinOrderQty,
+			maxorderqty,
+			OnOrderQty,
+			unitmeasurecode,
+			ModifiedDate
+
+		)
+		values(
+			@productid,
+			@companyid, 
+			@averageleadtime, 
+			@StandardPrice,
+			@LastReceiptCost,
+			@LastReceiptDate,
+			@MinOrderQty,
+			@maxorderqty,
+			0,
+			@unitmeasurecode,
+			getdate()
+			);
+
+
+
+		commit transaction
+		end try
+		begin catch 
+			if @@trancount >0
+				rollback transaction;
+
+				DECLARE @ErrorMessage NVARCHAR(4000);
+				DECLARE @ErrorSeverity INT;
+				DECLARE @ErrorState int;
+
+		select 
+			@ErrorMessage = ERROR_MESSAGE(),
+			@ErrorSeverity = ERROR_SEVERITY(),
+			@ErrorState = ERROR_STATE();
+
+		RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+
+			throw;
+		end catch
+
+end;
+
+
+exec newprod 
+			@prodname='jsoidfjosif',
+			@productnumber = '26549685475',
+			@makeflag = null,--0 = Product is purchased, 1 = Product is manufactured in-house. AN 1 TO COMPANY ID select DISTINCT BusinessEntityID from purchasing.productvendor where UnitMeasureCode ='NA'; KAI TO NAME select NAME from purchasing.vendor where BusinessEntityID = (TO COMPNAYID)
+			@Color = 'BLack',
+			@safetystocklevel='350',--select DISTINCT SafetyStockLevel from production.product, COMBO BOX ΑΛΛΑ ΑΝ ΘΕΛΕΙ ΝΑ ΒΑΛΕΙ ΚΑΙ Ο ΙΔΙΟΣ
+			@reorderpoint = '400',--select DISTINCT ReorderPoint from production.product,COMBO BOX ΑΛΛΑ ΑΝ ΘΕΛΕΙ ΝΑ ΒΑΛΕΙ ΚΑΙ Ο ΙΔΙΟΣ
+			@standardcost='699.0928',
+			@listprice='1349.60',
+			@size='42' ,
+			@SizeUnitMeasureCode='CM',--CM PANTA OR NULL
+			@WeightUnitMeasureCode='G',--LB OR G OR NULL
+			@Weight='15.42',
+			@DaysToManufacture='4',--0 TO 10 DAYS
+			@ProductLine='R',--R = Road, M = Mountain, T = Touring, S = Standard or null  COMBO BOX AN ΘΕΣ(ΠΙΣΤΕΥΩ ΠΩς ΝΑΙ)
+			@Class ='H' ,--H = High, M = Medium, L = Low or null COMBO BOX AN ΘΕΣ(ΠΙΣΤΕΥΩ ΠΩς ΝΑΙ)
+			@Style = 'M',--W = Womens, M = Mens, U = Universal COMBO BOX AN ΘΕΣ(ΠΙΣΤΕΥΩ ΠΩς ΝΑΙ)
+			@ProductSubcategoryID = null,
+			@productsubcatname = 'Bottom Brackets',--select name from Production.productsubcategory COMBO BOX
+			@ProductModelId=null,--my responsibility
+			@sellstartdate = null,
+			@SellEndDate = null,
+			@productmodelname ='Chain' ,--select name from production.productmodel COMBO BOX
+			@productid = null, --inventory
+			@locationid = null,
+			@locatinname = 'Frame Welding',--select name from production.Location COMBO BOX
+			@shelf='A',--select  distinct Shelf from production.ProductInventory order by shelf asc;
+			@bin ='54',--0 to 61 or select  distinct Bin from production.ProductInventory order by bin;
+			@quantity = '400',
+			@companyid = null, --purchasing.productvendor
+			@companyname = 'Compete Enterprises, Inc',--select Name from purchasing.vendor
+			@averageleadtime = '23', --10-120 dThe average span of time (in days) between placing an order with the vendor and receiving the purchased product.
+			@StandardPrice = '36.099', --The vendor's usual selling price.
+			@MinOrderQty= '1000',--select distinct MinOrderQty from purchasing.ProductVendor; NA YPARXEI EPILOGH NA BALLEI KAI DIKO TOY SE PARAKALV
+			@maxorderqty = '5000',--select distinct MaxOrderQty from purchasing.ProductVendor; NA YPARXEI EPILOGH NA BALLEI KAI DIKO TOY SE PARAKALV
+			@unitmeasurecode = null,
+			@unitmeasurename =  'Internal construction';
+
+										--# # GIA OTAN TO @MAKEFLAG EINAI 0
+											--select distinct um.name from purchasing.ProductVendor p
+											--left join Production.UnitMeasure um
+											--on um.UnitMeasureCode = p.UnitMeasureCode 
+											--where um.UnitMeasureCode not in('NA')
+
+										--## OTAN TO @MAKEFLAG EINAI 1 
+												--select distinct um.name from purchasing.ProductVendor p
+												--left join Production.UnitMeasure um
+												--on um.UnitMeasureCode = p.UnitMeasureCode 
+												--where um.UnitMeasureCode ='NA';
+			--AN @MAKEFLAG = 1 TOTE @unitmeasurename = 'Internal construction';
+
+
+			select top 10* from production.Product order by productid desc;
+            ----------------------------------------------------------------------
+
+
